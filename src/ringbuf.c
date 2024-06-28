@@ -17,6 +17,7 @@ int ringbuffer_write(rbctx_t *context, void *message, size_t message_len) {
   if (message_len >= context->end - context->begin) {
     return OUTPUT_BUFFER_TOO_SMALL;
   }
+
   context->write[0] = (uint8_t)message_len;
   context->write += 1;
 
@@ -42,6 +43,7 @@ int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
   }
   context->read += 1;
 
+  *buffer_len = message_len;
   for (size_t i = 0; i < message_len; i++) {
     ((uint8_t *)buffer)[i] = context->read[0];
     context->read += 1;
@@ -53,4 +55,4 @@ int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
   return SUCCESS;
 }
 
-void ringbuffer_destroy(rbctx_t *context) { free(context); }
+void ringbuffer_destroy(rbctx_t *context) {}
