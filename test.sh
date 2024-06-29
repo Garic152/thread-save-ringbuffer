@@ -42,7 +42,7 @@ for test_executable in "${test_executables_by_file[@]}"; do
     echo "echo -e \"\033[0;31mFILE NOT FOUND\033[0m --- $test_executable\"" >> $summary_file
   elif [ -x "$test_executable" ]; then
     echo -e "\n===> \033[0;34mRUNNING\033[0m $test_executable <===\n"
-    timeout 2s "$test_executable" ./test/testfile.txt "$dest_file" > /dev/null
+    timeout 2s "$test_executable" ./test/test_unthreaded_wrap/testfile.txt "$dest_file" > /dev/null
     if [ $? -eq 0 ]; then
 			echo "echo -e \"\033[0;32mPASSED\033[0m --- $test_executable\"" >> $summary_file
       passed=$((passed+1))
