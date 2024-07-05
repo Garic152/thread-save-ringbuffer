@@ -78,27 +78,86 @@ void *write_packets(void *arg) {
 // 2. filtering functionality
 // 3. (thread-safe) write to file functionality
 
+typedef struct {
+  size_t expected_packet_id;
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+} port_info;
+
+port_info ports[MAXIMUM_PORT];
+
 void *read_packets(void *arg) {
-  rbctx_t *ctx = ((w_thread_args_t *)arg)->ctx;
+  rbctx_t *ctx = (rbctx_t *)arg;
 
   unsigned char buf[MESSAGE_SIZE];
   size_t buf_len = sizeof(buf);
 
   while (ringbuffer_read(arg, buf, &buf_len) != SUCCESS) {
-  }
-
-  size_t from = buf[0];
-  size_t to = buf[1];
-
-  if (from == to || from == 42 || to == 42 || from + to == 42) {
+    printf("Ringbuffer empty in read_packets");
     return NULL;
   }
 
-  char message[MESSAGE_SIZE + 1];
-  memcpy(message, &buf[2], MESSAGE_SIZE);
-  message[MESSAGE_SIZE] = '\0';
+  size_t from, to, packet_id;
 
-  printf("Message: %s \n", message);
+  memcpy(&from, buf, sizeof(size_t));
+  memcpy(&to, buf + sizeof(size_t), sizeof(size_t));
+  memcpy(&packet_id, buf + 2 * sizeof(size_t), sizeof(size_t));
+
+  if (to < MAXIMUM_PORT) {
+    port_info *port = &ports[to];
+    printf("\nFrom: %zu\nTo:%zu\nPacket_ID:%zu\n", from, to, packet_id);
+
+    if (from == to || from == 42 || to == 42 || from + to == 42) {
+      port->expected_packet_id += 1;
+      return NULL;
+    }
+
+    char message[buf_len - 3 * sizeof(size_t)];
+    memcpy(message, buf + 3 * sizeof(size_t), buf_len - 3 * sizeof(size_t));
+
+    // scan for "malicious"
+    char *malicious = "malicious";
+    for (size_t i = 0; i < MESSAGE_SIZE - 3 * sizeof(size_t); i++) {
+      if (message[i] == *malicious) {
+        if (*malicious == 's') {
+          printf("MALICOUS CONTENT FOUND!\n");
+          port->expected_packet_id += 1;
+          printf("Next expected packet: %zu\n", port->expected_packet_id);
+          return NULL;
+        }
+        malicious++;
+      }
+    }
+
+    // write to file
+
+    pthread_mutex_lock(&port->mutex);
+
+    printf("Now writing to port %zu\n", to);
+
+    while (packet_id != port->expected_packet_id) {
+      printf("Waiting for port %zu\n", to);
+      pthread_cond_wait(&port->cond, &port->mutex);
+    }
+
+    char filename[10];
+    snprintf(filename, sizeof(filename), "%zu.txt", to);
+    FILE *fp = fopen(filename, "a");
+    if (fp == NULL) {
+      fprintf(stderr, "Cannot open file with name %s\n", filename);
+      exit(1);
+    }
+    fwrite(message, 1, buf_len - 3 * sizeof(size_t), fp);
+    fclose(fp);
+
+    port->expected_packet_id += 1;
+    pthread_cond_broadcast(&port->cond);
+
+    pthread_mutex_unlock(&port->mutex);
+  } else {
+    printf("Unexpected port number '%zu', exiting", to);
+    exit(EXIT_FAILURE);
+  }
 
   return NULL;
 }
@@ -157,6 +216,12 @@ int simpledaemon(connection_t *connections, int nr_of_connections) {
   // 1. think about what arguments you need to pass to the processing threads
   // 2. start the processing threads
 
+  for (int i = 0; i < MAXIMUM_PORT; i++) {
+    ports[i].expected_packet_id = 0;
+    pthread_mutex_init(&ports[i].mutex, NULL);
+    pthread_cond_init(&ports[i].cond, NULL);
+  }
+
   for (int i = 0; i < NUMBER_OF_PROCESSING_THREADS; i++) {
     pthread_create(&r_threads[i], NULL, read_packets, &rb_ctx);
   }
@@ -196,6 +261,10 @@ int simpledaemon(connection_t *connections, int nr_of_connections) {
   /* YOUR CODE STARTS HERE */
 
   // use this section to free any memory, destory mutexe etc.
+  for (int i = 0; i < MAXIMUM_PORT; i++) {
+    pthread_mutex_destroy(&ports[i].mutex);
+    pthread_cond_destroy(&ports[i].cond);
+  }
 
   /* YOUR CODE ENDS HERE */
 
