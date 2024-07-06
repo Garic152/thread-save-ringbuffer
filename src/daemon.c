@@ -147,7 +147,6 @@ void *read_packets(void *arg) {
 
       if (is_malicious) {
         pthread_mutex_lock(&port->mutex);
-        printf("MALICIOUS CONTENT FOUND!\n");
         port->expected_packet_id += 1;
         pthread_cond_broadcast(&port->cond);
         pthread_mutex_unlock(&port->mutex);
