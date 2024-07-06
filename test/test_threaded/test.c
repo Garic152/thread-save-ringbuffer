@@ -63,14 +63,10 @@ void *reader(void *arg)
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
         }
         /* write result into array */
+        assert(idx >= 0 && idx < NUMBER_OF_STRINGS);
         write_result[idx] = malloc(read);
         strncpy(write_result[idx], (char*) buf, read);
         idx += writing_direction;
-
-        if (idx < 0 || idx >= NUMBER_OF_STRINGS) {
-            printf("Something went wrong, exiting\n");
-            exit(1);
-        }
 
         if (writing_direction == 1) {
             READER_ONE_COUNT++;

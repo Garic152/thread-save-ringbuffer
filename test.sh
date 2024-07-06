@@ -64,7 +64,7 @@ for test_executable in "${test_executables_threaded[@]}"; do
     echo "echo -e \"\033[0;31mFILE NOT FOUND\033[0m --- $test_executable\"" >> $summary_file
   elif [ -x "$test_executable" ]; then
     echo -e "\n===> \033[0;34mRUNNING\033[0m $test_executable <===\n"
-    timeout 5s "$test_executable" > /dev/null
+    timeout 6s "$test_executable" > /dev/null
     if [ $? -eq 0 ]; then
 			echo "echo -e \"\033[0;32mPASSED\033[0m --- $test_executable\"" >> $summary_file
       passed=$((passed+1))

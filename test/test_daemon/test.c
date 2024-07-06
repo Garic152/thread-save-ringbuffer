@@ -17,7 +17,7 @@ int check_files(const char *file1, const char *file2) {
         return 1;
     }
 
-    char c1, c2;
+    int c1, c2;
     while ((c1 = fgetc(fp1)) != EOF) {
         c2 = fgetc(fp2);
         if (c1 != c2) {
