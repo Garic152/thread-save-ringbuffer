@@ -90,73 +90,98 @@ void *read_packets(void *arg) {
   rbctx_t *ctx = (rbctx_t *)arg;
 
   unsigned char buf[MESSAGE_SIZE];
-  size_t buf_len = sizeof(buf);
+  size_t buf_len = MESSAGE_SIZE;
 
-  while (ringbuffer_read(arg, buf, &buf_len) != SUCCESS) {
-    printf("Ringbuffer empty in read_packets");
-    return NULL;
-  }
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
-  size_t from, to, packet_id;
-
-  memcpy(&from, buf, sizeof(size_t));
-  memcpy(&to, buf + sizeof(size_t), sizeof(size_t));
-  memcpy(&packet_id, buf + 2 * sizeof(size_t), sizeof(size_t));
-
-  if (to < MAXIMUM_PORT) {
-    port_info *port = &ports[to];
-    printf("\nFrom: %zu\nTo:%zu\nPacket_ID:%zu\n", from, to, packet_id);
-
-    if (from == to || from == 42 || to == 42 || from + to == 42) {
-      port->expected_packet_id += 1;
-      return NULL;
+  while (1) {
+    buf_len = MESSAGE_SIZE; // Reset buffer length before each read
+    if (ringbuffer_read(ctx, buf, &buf_len) != SUCCESS) {
+      pthread_testcancel();
+      continue;
     }
 
-    char message[buf_len - 3 * sizeof(size_t)];
-    memcpy(message, buf + 3 * sizeof(size_t), buf_len - 3 * sizeof(size_t));
+    size_t from = 0, to = 0, packet_id = 0;
 
-    // scan for "malicious"
-    char *malicious = "malicious";
-    for (size_t i = 0; i < MESSAGE_SIZE - 3 * sizeof(size_t); i++) {
-      if (message[i] == *malicious) {
-        if (*malicious == 's') {
-          printf("MALICOUS CONTENT FOUND!\n");
-          port->expected_packet_id += 1;
-          printf("Next expected packet: %zu\n", port->expected_packet_id);
-          return NULL;
-        }
-        malicious++;
+    memcpy(&from, buf, sizeof(size_t));
+    memcpy(&to, buf + sizeof(size_t), sizeof(size_t));
+    memcpy(&packet_id, buf + 2 * sizeof(size_t), sizeof(size_t));
+
+    // printf("From: %zu, To: %zu, Packet_ID: %zu, Buffer Length: %zu\n", from,
+    // to,
+    //       packet_id, buf_len);
+
+    if (to < MAXIMUM_PORT) {
+      port_info *port = &ports[to];
+
+      if (from == to || from == 42 || to == 42 || from + to == 42) {
+        pthread_mutex_lock(&port->mutex);
+        port->expected_packet_id += 1;
+        pthread_cond_broadcast(&port->cond);
+        pthread_mutex_unlock(&port->mutex);
+        continue;
       }
+
+      char message[MESSAGE_SIZE - 3 * sizeof(size_t)] = {0};
+      size_t message_len = buf_len - 3 * sizeof(size_t);
+
+      if (message_len > 0) {
+        memcpy(message, buf + 3 * sizeof(size_t), message_len);
+      }
+
+      // scan for "malicious"
+      char *malicious = "malicious";
+      uint8_t is_malicious = 0;
+
+      for (size_t i = 0; i < message_len; i++) {
+        if (message[i] == *malicious) {
+          malicious++;
+          if (*malicious == '\0') {
+            is_malicious = 1;
+            break;
+          }
+        }
+        pthread_testcancel();
+      }
+
+      if (is_malicious) {
+        pthread_mutex_lock(&port->mutex);
+        printf("MALICIOUS CONTENT FOUND!\n");
+        port->expected_packet_id += 1;
+        pthread_cond_broadcast(&port->cond);
+        pthread_mutex_unlock(&port->mutex);
+        continue;
+      }
+
+      // write to file
+      pthread_mutex_lock(&port->mutex);
+
+      while (packet_id != port->expected_packet_id) {
+        pthread_cond_wait(&port->cond, &port->mutex);
+        pthread_testcancel();
+      }
+
+      char filename[10];
+      snprintf(filename, sizeof(filename), "%zu.txt", to);
+      FILE *fp = fopen(filename, "a");
+      if (fp == NULL) {
+        fprintf(stderr, "Cannot open file with name %s\n", filename);
+        exit(1);
+      }
+      fwrite(message, 1, message_len, fp);
+      fclose(fp);
+
+      port->expected_packet_id += 1;
+      pthread_cond_broadcast(&port->cond);
+
+      pthread_mutex_unlock(&port->mutex);
+    } else {
+      printf("Unexpected port number '%zu', exiting", to);
+      pthread_testcancel();
+      exit(EXIT_FAILURE);
     }
-
-    // write to file
-
-    pthread_mutex_lock(&port->mutex);
-
-    printf("Now writing to port %zu\n", to);
-
-    while (packet_id != port->expected_packet_id) {
-      printf("Waiting for port %zu\n", to);
-      pthread_cond_wait(&port->cond, &port->mutex);
-    }
-
-    char filename[10];
-    snprintf(filename, sizeof(filename), "%zu.txt", to);
-    FILE *fp = fopen(filename, "a");
-    if (fp == NULL) {
-      fprintf(stderr, "Cannot open file with name %s\n", filename);
-      exit(1);
-    }
-    fwrite(message, 1, buf_len - 3 * sizeof(size_t), fp);
-    fclose(fp);
-
-    port->expected_packet_id += 1;
-    pthread_cond_broadcast(&port->cond);
-
-    pthread_mutex_unlock(&port->mutex);
-  } else {
-    printf("Unexpected port number '%zu', exiting", to);
-    exit(EXIT_FAILURE);
+    pthread_testcancel();
   }
 
   return NULL;
