@@ -21,10 +21,8 @@ typedef struct {
     uint8_t* write;
     uint8_t* begin;
     uint8_t* end; //1 step AFTER the last readable address
-    pthread_mutex_t mutex_read;
-    pthread_mutex_t mutex_write;
-    pthread_cond_t signal_read;
-    pthread_cond_t signal_write;
+    pthread_mutex_t mtx;
+    pthread_cond_t sig;
 } rbctx_t;
 
 /**

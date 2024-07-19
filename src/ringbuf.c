@@ -45,23 +45,20 @@ void ringbuffer_init(rbctx_t *context, void *buffer_location,
   context->read = buffer_location;
   context->write = buffer_location;
 
-  pthread_mutex_init(&context->mutex_read, NULL);
-  pthread_mutex_init(&context->mutex_write, NULL);
-  pthread_cond_init(&context->signal_read, NULL);
-  pthread_cond_init(&context->signal_write, NULL);
+  pthread_mutex_init(&context->mtx, NULL);
+  pthread_cond_init(&context->sig, NULL);
 }
 
 int ringbuffer_write(rbctx_t *context, void *message, size_t message_len) {
-  pthread_mutex_lock(&context->mutex_write);
+  pthread_mutex_lock(&context->mtx);
 
   while (write_space(context) < message_len + sizeof(size_t)) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec += TIMEOUT;
 
-    if (pthread_cond_timedwait(&context->signal_write, &context->mutex_write,
-                               &ts) != 0) {
-      pthread_mutex_unlock(&context->mutex_write);
+    if (pthread_cond_timedwait(&context->sig, &context->mtx, &ts) != 0) {
+      pthread_mutex_unlock(&context->mtx);
       return RINGBUFFER_FULL;
     }
   }
@@ -79,16 +76,16 @@ int ringbuffer_write(rbctx_t *context, void *message, size_t message_len) {
 
   context->write = write;
 
-  pthread_cond_signal(&context->signal_read);
-  pthread_mutex_unlock(&context->mutex_write);
+  pthread_cond_signal(&context->sig);
+  pthread_mutex_unlock(&context->mtx);
   return SUCCESS;
 }
 
 int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
-  pthread_mutex_lock(&context->mutex_read);
+  pthread_mutex_lock(&context->mtx);
 
   if (read_space(context) < sizeof(size_t)) {
-    pthread_mutex_unlock(&context->mutex_read);
+    pthread_mutex_unlock(&context->mtx);
     return RINGBUFFER_EMPTY;
   }
 
@@ -99,7 +96,7 @@ int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
   }
 
   if (message_len > *buffer_len) {
-    pthread_mutex_unlock(&context->mutex_read);
+    pthread_mutex_unlock(&context->mtx);
     return OUTPUT_BUFFER_TOO_SMALL;
   }
 
@@ -108,9 +105,8 @@ int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec += TIMEOUT;
 
-    if (pthread_cond_timedwait(&context->signal_read, &context->mutex_read,
-                               &ts) != 0) {
-      pthread_mutex_unlock(&context->mutex_read);
+    if (pthread_cond_timedwait(&context->sig, &context->mtx, &ts) != 0) {
+      pthread_mutex_unlock(&context->mtx);
       return RINGBUFFER_EMPTY;
     }
   }
@@ -121,14 +117,12 @@ int ringbuffer_read(rbctx_t *context, void *buffer, size_t *buffer_len) {
     read_inc(context);
   }
 
-  pthread_cond_signal(&context->signal_write);
-  pthread_mutex_unlock(&context->mutex_read);
+  pthread_cond_signal(&context->sig);
+  pthread_mutex_unlock(&context->mtx);
   return SUCCESS;
 }
 
 void ringbuffer_destroy(rbctx_t *context) {
-  pthread_mutex_destroy(&context->mutex_write);
-  pthread_mutex_destroy(&context->mutex_read);
-  pthread_cond_destroy(&context->signal_read);
-  pthread_cond_destroy(&context->signal_write);
+  pthread_mutex_destroy(&context->mtx);
+  pthread_cond_destroy(&context->sig);
 }
